@@ -2,9 +2,9 @@
 
 > File này **tự sinh** bởi `scripts/grade.py`. **Không** viết / sửa tay.
 
-- Generated (UTC): `2026-09-28T03:59:26.792525+00:00`
+- Generated (UTC): `2026-09-28T04:06:03.734147+00:00`
 - Framework: `google-adk`
-- Technical failure: **True**
+- Technical failure: **False**
 
 ## Packaging
 
@@ -17,8 +17,8 @@
 
 ## Schema (`results.json`)
 
-- Valid: **False**
-- Error: `jsonschema not installed`
+- Valid: **True**
+- Error: `None`
 
 ## Defense snapshot (từ `results.json`)
 
@@ -35,8 +35,13 @@
 
 ## Public tests
 
-- Return code: `1`
+- Return code: `0`
 - Technical failure: `False`
+
+```text
+..........                                                               [100%]
+10 passed in 7.51s
+```
 
 ## Notes
 
