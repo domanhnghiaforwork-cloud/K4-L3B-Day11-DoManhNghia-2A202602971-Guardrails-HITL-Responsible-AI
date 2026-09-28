@@ -8,6 +8,7 @@ Gemini Red Team dùng Google ADK trong agents/*.py — không đi qua file này.
 """
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -45,6 +46,7 @@ class OpenAIRunner:
     client_kwargs: dict = field(default_factory=dict)
     input_hooks: list[Callable[[str], str | None]] = field(default_factory=list)
     output_hooks: list[Callable[[str], str]] = field(default_factory=list)
+    _resolved_model: str | None = field(default=None, init=False, repr=False)
 
     def _client(self):
         from openai import OpenAI
@@ -61,15 +63,56 @@ class OpenAIRunner:
         if block_msg is not None:
             return block_msg
 
+        from openai import NotFoundError, RateLimitError
+
         client = self._client()
-        completion = client.chat.completions.create(
-            model=self.model,
-            messages=[
+        request = {
+            "messages": [
                 {"role": "system", "content": agent.instruction},
                 {"role": "user", "content": user_message},
             ],
-            temperature=self.temperature,
-        )
+            "temperature": self.temperature,
+        }
+        async def create_with_rate_limit_retry(model: str):
+            try:
+                return client.chat.completions.create(model=model, **request)
+            except RateLimitError as error:
+                response = getattr(error, "response", None)
+                headers = getattr(response, "headers", {}) or {}
+                retry_after = headers.get("Retry-After")
+                if retry_after is None and response is not None:
+                    try:
+                        retry_after = response.json()["error"]["metadata"]["retry_after_seconds"]
+                    except (KeyError, TypeError, ValueError):
+                        pass
+                if retry_after is None:
+                    raise
+                try:
+                    wait_seconds = min(max(float(retry_after), 1.0), 90.0)
+                except (TypeError, ValueError):
+                    raise error
+                print(f"{self.provider} đang giới hạn tạm thời; thử lại sau {wait_seconds:.0f}s.")
+                await asyncio.sleep(wait_seconds + 1)
+                return client.chat.completions.create(model=model, **request)
+
+        try:
+            completion = await create_with_rate_limit_retry(
+                self._resolved_model or self.model
+            )
+        except NotFoundError as error:
+            # OpenRouter may only expose the free endpoint for this exact
+            # Liquid model. Keep the lab's locked model as the first choice.
+            if (
+                self.provider != "openrouter"
+                or self.model != "liquid/lfm-2.5-2.6b"
+                or "No endpoints found" not in str(error)
+            ):
+                raise
+            print("OpenRouter: endpoint mặc định không có; thử bản :free của cùng model.")
+            self._resolved_model = "liquid/lfm-2.5-2.6b:free"
+            completion = await create_with_rate_limit_retry(
+                self._resolved_model
+            )
         text = (completion.choices[0].message.content or "").strip()
 
         for hook in self.output_hooks:
